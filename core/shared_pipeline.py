@@ -925,6 +925,52 @@ def score_temporal_anomaly(diff_series: np.ndarray, smooth_window: int = 5) -> n
 print('[STATUS] compute_frame_diff_series / score_temporal_anomaly defined')
 
 
+def predict_accident_time(video_path: pathlib.Path,
+                          smooth_window: int = 5,
+                          z_threshold: float = 1.5) -> float:
+    """Accident time in seconds via peak detection on frame-difference z-scores."""
+    cap = cv2.VideoCapture(str(video_path))
+    fps      = cap.get(cv2.CAP_PROP_FPS)
+    n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+
+    if fps <= 0 or n_frames == 0:
+        return 0.0
+
+    diff_series = compute_frame_diff_series(video_path)
+    if len(diff_series) == 0:
+        return n_frames / fps / 2.0
+
+    anomaly = score_temporal_anomaly(diff_series, smooth_window)
+
+    candidates = np.where(anomaly > z_threshold)[0]
+    if len(candidates) == 0:
+        peak_frame = int(np.argmax(anomaly))
+    else:
+        peak_frame = int(candidates[np.argmax(anomaly[candidates])])
+
+    return round(peak_frame / fps, 4)
+
+
+def predict_accident_time_ensemble(video_path: pathlib.Path,
+                                   smooth_window: int = 5,
+                                   z_threshold: float = 1.5) -> float:
+    """Official-baseline ensemble: frame-diff z-score time + OSD if available."""
+    t_diff = predict_accident_time(video_path, smooth_window, z_threshold)
+    if 'predict_accident_time_osd' in globals() and callable(globals()['predict_accident_time_osd']):
+        try:
+            t_osd = predict_accident_time_osd(video_path, sample_fps=10.0,
+                                               smooth_window=smooth_window, z_threshold=z_threshold)
+            if t_osd is not None:
+                return round((t_diff + t_osd) / 2.0, 4)
+        except Exception:
+            pass
+    return t_diff
+
+
+print('[STATUS] predict_accident_time / predict_accident_time_ensemble defined')
+
+
 # --- Code Cell ---
 # [FEATURE] Optical-flow magnitude map -- spatial localization signal
 
